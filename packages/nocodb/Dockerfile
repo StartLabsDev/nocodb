@@ -52,6 +52,9 @@ RUN echo "node-linker=hoisted" >> .npmrc
 # Create a temporary package.json without the prepare script
 RUN jq 'del(.scripts.prepare)' package.json > temp-package.json && mv temp-package.json package.json
 
+# Remove postinstall scripts from packages that might cause issues
+RUN jq 'del(.scripts.postinstall)' ./packages/nc-gui/package.json > temp-package.json && mv temp-package.json ./packages/nc-gui/package.json
+
 # Install production dependencies, reduce node_modules size with modclean,
 # remove sqlite deps, and add execute permission to start.sh
 RUN pnpm install --prod --shamefully-hoist \
