@@ -48,8 +48,8 @@ COPY --link ../../.npmrc ./npmrc
 # Configure pnpm to use hoisted node_modules for modclean compatibility
 RUN echo "node-linker=hoisted" >> .npmrc
 
-# Set environment variable to skip husky installation
-ENV HUSKY=0
+# Create a temporary package.json without the prepare script
+RUN jq 'del(.scripts.prepare)' package.json > temp-package.json && mv temp-package.json package.json
 
 # Install production dependencies, reduce node_modules size with modclean,
 # remove sqlite deps, and add execute permission to start.sh
