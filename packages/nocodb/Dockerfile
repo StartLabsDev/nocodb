@@ -38,11 +38,8 @@ RUN python3 --version && python --version
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
-# Copy application dependency manifests to the container image.
-COPY --link ./package.json ./package.json
-#COPY --link ./docker/main.js ./docker/main.js
-COPY --link ./docker/start-litestream.sh /usr/src/appEntry/start.sh
-COPY --link src/public/ ./docker/public/
+# Copy the entire project
+COPY --link . .
 
 # Configure pnpm to use hoisted node_modules for modclean compatibility
 RUN echo "node-linker=hoisted" > .npmrc
