@@ -38,8 +38,11 @@ RUN python3 --version && python --version
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
-# Copy the entire project
-COPY --link . .
+# Copy the entire project from the root directory
+COPY --link ../../packages/ ./packages/
+COPY --link ../../package.json ./package.json
+COPY --link ../../pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --link ../../pnpm-workspace.yaml ./pnpm-workspace.yaml
 
 # Configure pnpm to use hoisted node_modules for modclean compatibility
 RUN echo "node-linker=hoisted" > .npmrc
@@ -78,10 +81,10 @@ RUN apt-get update && apt-get install -y \
 
 # Copy litestream binary and config file
 COPY --link --from=lt-builder /usr/src/lt /usr/local/bin/litestream
-COPY --link ./docker/litestream.yml /etc/litestream.yml
+COPY --link ./packages/nocodb/docker/litestream.yml /etc/litestream.yml
 
 # Copy production code & main entry file
-COPY --link --from=builder /usr/src/app/ /usr/src/app/
+COPY --link --from=builder /usr/src/app/packages/nocodb/ /usr/src/app/
 COPY --link --from=builder /usr/src/appEntry/ /usr/src/appEntry/
 
 EXPOSE 8080
