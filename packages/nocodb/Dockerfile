@@ -48,6 +48,9 @@ COPY --link ../../.npmrc ./npmrc
 # Configure pnpm to use hoisted node_modules for modclean compatibility
 RUN echo "node-linker=hoisted" >> .npmrc
 
+# Set environment variable to skip husky installation
+ENV HUSKY=0
+
 # Install production dependencies, reduce node_modules size with modclean,
 # remove sqlite deps, and add execute permission to start.sh
 RUN pnpm install --prod --shamefully-hoist \
