@@ -96,8 +96,13 @@ COPY --link --from=builder /usr/src/app/packages/nocodb/ /usr/src/app/
 COPY --link --from=builder /usr/src/app/packages/nocodb/docker/start-litestream.sh /usr/src/appEntry/start.sh
 RUN chmod +x /usr/src/appEntry/start.sh
 
+# Create the main.js file
+RUN mkdir -p /usr/src/app/docker && \
+    echo '#!/usr/bin/env node\n\nconst { spawn } = require("child_process");\nconst path = require("path");\n\nconst startScript = path.join(__dirname, "../packages/nocodb/docker/start-litestream.sh");\n\nconst child = spawn(startScript, [], {\n  stdio: "inherit",\n  shell: true,\n});\n\nchild.on("error", (err) => {\n  console.error(`Failed to start subprocess: ${err}`);\n  process.exit(1);\n});\n\nprocess.on("SIGTERM", () => {\n  child.kill("SIGTERM");\n});\n\nprocess.on("SIGINT", () => {\n  child.kill("SIGINT");\n});' > /usr/src/app/docker/main.js && \
+    chmod +x /usr/src/app/docker/main.js
+
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 # Start Nocodb
-CMD ["/usr/src/appEntry/start.sh"]
+CMD ["/usr/src/app/docker/main.js"]
