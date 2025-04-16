@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
     make \
     g++ \
     libssl-dev \
+    jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN python3 --version && python --version
