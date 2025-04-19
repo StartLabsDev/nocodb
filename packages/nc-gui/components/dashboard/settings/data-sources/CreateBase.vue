@@ -9,7 +9,10 @@ import {
   SSLUsage,
   type SnowflakeConnection,
   clientTypes as _clientTypes,
+  type DefaultConnection,
 } from '#imports'
+import type { StringOrNullType as SDKStringOrNullType } from 'nocodb-sdk'
+import { ClientType as SDKClientType } from 'nocodb-sdk'
 
 const props = defineProps<{ open: boolean; connectionType?: ClientType }>()
 
@@ -57,7 +60,13 @@ const isLoading = ref<boolean>(false)
 const defaultFormState = (client = ClientType.MYSQL) => {
   return {
     title: '',
-    dataSource: { ...getDefaultConnectionConfig(client) },
+    dataSource: { 
+      ...getDefaultConnectionConfig(client),
+      tableFilter: '' as SDKStringOrNullType,
+      client,
+      connection: {} as DefaultConnection | SnowflakeConnection | DatabricksConnection,
+      searchPath: [] as string[],
+    },
     inflection: {
       inflectionColumn: 'none',
       inflectionTable: 'none',
@@ -66,6 +75,7 @@ const defaultFormState = (client = ClientType.MYSQL) => {
     extraParameters: [],
     is_schema_readonly: true,
     is_data_readonly: false,
+    fk_integration_id: undefined as string | undefined,
   }
 }
 
@@ -87,10 +97,11 @@ const selectedIntegration = computed(() => {
 })
 
 const selectedIntegrationDb = computed(() => {
-  return selectedIntegration.value?.config?.connection?.database
+  return selectedIntegration.value?.config?.connection?.database ?? ''
 })
+
 const selectedIntegrationSchema = computed(() => {
-  return selectedIntegration.value?.config?.searchPath?.[0]
+  return selectedIntegration.value?.config?.searchPath?.[0] ?? ''
 })
 
 const getDataSourceValue = (field: 'database' | 'schema') => {
@@ -106,6 +117,22 @@ const validators = computed(() => {
   let clientValidations: Record<string, any[]> = {
     'dataSource.connection.database':
       selectedIntegration.value && getDataSourceValue('database') ? [] : [fieldRequiredValidator()],
+    'dataSource.tableFilter': [(rule: any, value: string) => {
+      if (!value) return Promise.resolve();
+      try {
+        const tables = JSON.parse(value);
+        if (!Array.isArray(tables)) {
+          return Promise.reject('Table filter must be a JSON array (e.g., ["users", "products"])');
+        }
+        // Validate that all elements are strings
+        if (!tables.every(table => typeof table === 'string')) {
+          return Promise.reject('All table names must be strings');
+        }
+        return Promise.resolve();
+      } catch (e) {
+        return Promise.reject('Invalid JSON format. Please enter a valid JSON array (e.g., ["users", "products"])');
+      }
+    }],
   }
 
   switch (formState.value.dataSource.client) {
@@ -161,7 +188,9 @@ function getConnectionConfig() {
     ...extraParameters,
   }
 
-  connection.ssl = validateAndExtractSSLProp(connection, formState.value.sslUse, formState.value.dataSource.client)
+  if (formState.value.sslUse) {
+    connection.ssl = validateAndExtractSSLProp(connection, formState.value.sslUse, formState.value.dataSource.client)
+  }
 
   return connection
 }
@@ -187,7 +216,41 @@ const createSource = async () => {
 
     const connection = getConnectionConfig()
 
-    const config = { ...formState.value.dataSource, connection }
+    // Parse tableFilter if provided
+    let parsedTableFilter = null;
+    console.log('[CreateBase] Original tableFilter:', formState.value.dataSource.tableFilter);
+    if (formState.value.dataSource.tableFilter) {
+      try {
+        // Validate that tableFilter is a valid JSON array
+        const tables = JSON.parse(formState.value.dataSource.tableFilter)
+        console.log('[CreateBase] Parsed tableFilter:', tables);
+        if (!Array.isArray(tables)) {
+          console.error('[CreateBase] Table filter is not an array:', tables);
+          message.error('Table filter must be a JSON array')
+          creatingSource.value = false
+          return
+        }
+        parsedTableFilter = tables // Store the parsed array directly
+      } catch (e) {
+        console.error('[CreateBase] Error parsing tableFilter:', e);
+        message.error('Invalid table filter format. Please enter a valid JSON array.')
+        creatingSource.value = false
+        return
+      }
+    }
+
+    const config = {
+      ...formState.value.dataSource,
+      connection,
+      client: formState.value.dataSource.client as ClientType,
+      tableFilter: parsedTableFilter,
+    }
+    console.log('[CreateBase] Final config with tableFilter:', config);
+
+    // todo: refactor and remove this duplicate path in config
+    if (config.client === ClientType.SQLITE && config.connection?.connection?.filename) {
+      config.connection.filename = config.connection.connection.filename
+    }
 
     // if integration is selected and database/schema is empty, set it to `undefined` to use default from integration
     if (selectedIntegration.value) {
@@ -199,8 +262,7 @@ const createSource = async () => {
       }
     }
 
-    const jobData = await api.source.create(baseId.value, {
-      fk_integration_id: formState.value.fk_integration_id,
+    const source = await api.source.create(baseId.value, {
       alias: formState.value.title,
       type: formState.value.dataSource.client,
       config,
@@ -208,10 +270,11 @@ const createSource = async () => {
       inflection_table: formState.value.inflection.inflectionTable,
       is_schema_readonly: formState.value.is_schema_readonly,
       is_data_readonly: formState.value.is_data_readonly,
+      fk_integration_id: formState.value.fk_integration_id,
     })
 
     $poller.subscribe(
-      { id: jobData.id },
+      { id: source.id },
       async (data: {
         id: string
         status?: string
@@ -687,33 +750,29 @@ const isIntgrationDisabled = (integration: IntegrationType = {}) => {
                   </div>
                 </div>
 
-                <template
-                  v-if="![ClientType.SQLITE, ClientType.SNOWFLAKE, ClientType.DATABRICKS].includes(formState.dataSource.client)"
-                >
-                  <a-collapse v-model:active-key="advancedOptionsExpansionPanel" ghost class="nc-source-advanced-options !mt-4">
-                    <template #expandIcon="{ isActive }">
-                      <NcButton
-                        type="text"
-                        size="small"
-                        class="!-ml-1.5"
-                        @click="handleUpdateAdvancedOptionsExpansionPanel(!advancedOptionsExpansionPanel.length)"
-                      >
-                        <div class="nc-form-section-title">Advanced options</div>
-
-                        <GeneralIcon
-                          icon="chevronDown"
-                          class="ml-2 flex-none cursor-pointer transform transition-transform duration-500"
-                          :class="{ '!rotate-180': isActive }"
-                        />
-                      </NcButton>
-                    </template>
-                    <a-collapse-panel key="1" collapsible="disabled">
+                <div class="nc-form-section">
+                  <a-collapse>
+                    <a-collapse-panel key="1" header="Advanced Options">
                       <template #header>
                         <span></span>
                       </template>
 
                       <div class="flex flex-col gap-4">
                         <div class="flex flex-col gap-4">
+                          <a-row :gutter="24">
+                            <a-col :span="24">
+                              <a-form-item :label="$t('labels.tableFilter')">
+                                <a-textarea
+                                  v-model:value="formState.dataSource.tableFilter"
+                                  :placeholder="'[\'users\', \'products\']'"
+                                  :rows="3"
+                                />
+                                <div class="text-xs text-gray-500 mt-1">
+                                  Enter a JSON array of table names to include. Example: ["users", "products"]. Leave empty to include all tables.
+                                </div>
+                              </a-form-item>
+                            </a-col>
+                          </a-row>
                           <a-row :gutter="24">
                             <a-col :span="12">
                               <a-form-item :label="$t('labels.inflection.tableName')">
@@ -742,7 +801,7 @@ const isIntgrationDisabled = (integration: IntegrationType = {}) => {
                       </div>
                     </a-collapse-panel>
                   </a-collapse>
-                </template>
+                </div>
               </template>
               <div>
                 <!-- For spacing -->

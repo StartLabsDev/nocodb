@@ -372,6 +372,7 @@ export default class Source implements SourceType {
       partialExtract(config || {}, [
         ['connection', 'database'],
         ['searchPath'],
+        ['tableFilter'],
       ]),
     );
 

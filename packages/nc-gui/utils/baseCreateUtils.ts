@@ -12,6 +12,7 @@ interface ProjectCreateForm {
     client: ClientType
     connection: DefaultConnection | SQLiteConnection | SnowflakeConnection | DatabricksConnection
     searchPath?: string[]
+    tableFilter?: string
   }
   inflection: {
     inflectionColumn?: string

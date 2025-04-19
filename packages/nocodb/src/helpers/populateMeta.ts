@@ -242,16 +242,72 @@ export async function populateMeta(
 
   info.relationsCount = relations.length;
 
+  // Get tableFilter from source config if available
+  let tableFilter = source.getConfig()?.tableFilter;
+  let parsedTableFilter = null;
+  
+  console.log('[populateMeta] Source config:', JSON.stringify(source.getConfig(), null, 2));
+  console.log('[populateMeta] Raw tableFilter value:', tableFilter);
+  console.log('[populateMeta] TableFilter type:', typeof tableFilter);
+  
+  if (tableFilter) {
+    try {
+      // Handle both string and array tableFilter
+      if (typeof tableFilter === 'string') {
+        console.log('[populateMeta] Parsing string tableFilter:', tableFilter);
+        parsedTableFilter = JSON.parse(tableFilter);
+      } else {
+        console.log('[populateMeta] Using tableFilter directly as array:', tableFilter);
+        parsedTableFilter = tableFilter;
+      }
+      console.log('[populateMeta] Parsed tableFilter:', parsedTableFilter);
+      console.log('[populateMeta] Parsed tableFilter type:', typeof parsedTableFilter);
+      console.log('[populateMeta] Is array?', Array.isArray(parsedTableFilter));
+      
+      if (!Array.isArray(parsedTableFilter)) {
+        console.error('[populateMeta] Table filter is not an array:', parsedTableFilter);
+        parsedTableFilter = null;
+      }
+    } catch (e) {
+      console.error('[populateMeta] Error parsing tableFilter:', e);
+      parsedTableFilter = null;
+    }
+  }
+
   let tables = (
     await sqlClient.tableList({ schema: source.getConfig()?.schema })
-  )?.data?.list
-    ?.filter(({ tn }) => !IGNORE_TABLES.includes(tn))
+  )?.data?.list;
+  
+  console.log('[populateMeta] All tables before filtering:', tables?.map(t => t.tn));
+  
+  if (parsedTableFilter) {
+    console.log('[populateMeta] Applying table filter:', parsedTableFilter);
+  } else {
+    console.log('[populateMeta] No table filter applied, using IGNORE_TABLES');
+  }
+  
+  tables = tables
+    ?.filter(({ tn }) => {
+      // Check if tableFilter is provided in the source configuration
+      if (parsedTableFilter) {
+        const isIncluded = parsedTableFilter.includes(tn);
+        console.log(`[populateMeta] Table ${tn} included in filter: ${isIncluded}`);
+        return isIncluded;
+      }
+      
+      // Fall back to IGNORE_TABLES if tableFilter is not provided or parsing failed
+      const isIgnored = IGNORE_TABLES.includes(tn);
+      console.log(`[populateMeta] Table ${tn} in IGNORE_TABLES: ${isIgnored}`);
+      return !isIgnored;
+    })
     ?.map((t) => {
       t.order = ++order;
       t.title = getTableNameAlias(t.tn, base.prefix, source);
       t.table_name = t.tn;
       return t;
     });
+    
+  console.log('[populateMeta] Tables after filtering:', tables?.map(t => t.tn));
 
   /* filter based on prefix */
   if (source.is_meta && base?.prefix) {

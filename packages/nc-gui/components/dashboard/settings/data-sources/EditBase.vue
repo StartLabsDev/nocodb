@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { IntegrationsType, type SourceType, validateAndExtractSSLProp } from 'nocodb-sdk'
-import { Form, message } from 'ant-design-vue'
+import { Form } from 'ant-design-vue'
 import {
   ClientType,
   type DatabricksConnection,
@@ -64,7 +64,12 @@ const onEasterEgg = () => {
 const defaultFormState = (client = ClientType.MYSQL) => {
   return {
     title: '',
-    dataSource: { ...getDefaultConnectionConfig(client) },
+    dataSource: { 
+      ...getDefaultConnectionConfig(client),
+      tableFilter: '',
+      client,
+      connection: {} as DefaultConnection | SnowflakeConnection | DatabricksConnection,
+    },
     inflection: {
       inflectionColumn: 'none',
       inflectionTable: 'none',
@@ -159,7 +164,7 @@ const focusInvalidInput = () => {
   form.value?.$el.querySelector('.ant-form-item-explain-error')?.parentNode?.parentNode?.querySelector('input')?.focus()
 }
 
-const editBase = async () => {
+const updateSource = async () => {
   try {
     await validate()
   } catch (e) {
@@ -168,11 +173,42 @@ const editBase = async () => {
   }
 
   try {
-    if (!base.value?.id) return
+    if (!baseId.value) return
+
+    editingSource.value = true
 
     const connection = getConnectionConfig()
 
-    const config = { ...formState.value.dataSource, connection }
+    // Parse tableFilter if provided
+    let parsedTableFilter = null;
+    console.log('[EditBase] Original tableFilter:', formState.value.dataSource.tableFilter);
+    if (formState.value.dataSource.tableFilter) {
+      try {
+        // Validate that tableFilter is a valid JSON array
+        const tables = JSON.parse(formState.value.dataSource.tableFilter)
+        console.log('[EditBase] Parsed tableFilter:', tables);
+        if (!Array.isArray(tables)) {
+          console.error('[EditBase] Table filter is not an array:', tables);
+          message.error('Table filter must be a JSON array')
+          editingSource.value = false
+          return
+        }
+        parsedTableFilter = tables // Store the parsed array directly
+      } catch (e) {
+        console.error('[EditBase] Error parsing tableFilter:', e);
+        message.error('Invalid table filter format. Please enter a valid JSON array.')
+        editingSource.value = false
+        return
+      }
+    }
+
+    const config = {
+      ...formState.value.dataSource,
+      connection,
+      client: formState.value.dataSource.client as ClientType,
+      tableFilter: parsedTableFilter,
+    }
+    console.log('[EditBase] Final config with tableFilter:', config);
 
     // todo: refactor and remove this duplicate path in config
     if (config.client === ClientType.SQLITE && config.connection?.connection?.filename) {
@@ -549,7 +585,7 @@ function handleAutoScroll(scroll: boolean, className: string) {
                     class="!-ml-1.5"
                     @click="handleUpdateAdvancedOptionsExpansionPanel(!advancedOptionsExpansionPanel.length)"
                   >
-                    <div class="nc-form-section-title">Advanced options</div>
+                    <div class="nc-form-section-title">Advanced Options</div>
 
                     <GeneralIcon
                       icon="chevronDown"
@@ -558,13 +594,27 @@ function handleAutoScroll(scroll: boolean, className: string) {
                     />
                   </NcButton>
                 </template>
-                <a-collapse-panel key="1" collapsible="disabled">
+                <a-collapse-panel key="1" header="Advanced Options">
                   <template #header>
                     <span></span>
                   </template>
 
                   <div class="flex flex-col gap-4">
                     <div class="flex flex-col gap-4">
+                      <a-row :gutter="24">
+                        <a-col :span="24">
+                          <a-form-item :label="t('labels.tableFilter')">
+                            <a-textarea
+                              v-model:value="formState.dataSource.tableFilter"
+                              :placeholder="t('labels.tableFilterPlaceholder')"
+                              :rows="4"
+                            />
+                            <div class="text-xs text-gray-500 mt-1">
+                              {{ t('labels.tableFilterHelp') }}
+                            </div>
+                          </a-form-item>
+                        </a-col>
+                      </a-row>
                       <a-row :gutter="24">
                         <a-col :span="12">
                           <a-form-item :label="$t('labels.inflection.tableName')">
@@ -651,7 +701,7 @@ function handleAutoScroll(scroll: boolean, className: string) {
           :disabled="!testSuccess || isLoading"
           :loading="editingSource"
           class="nc-extdb-btn-submit"
-          @click="editBase"
+          @click="updateSource"
         >
           {{ $t('general.submit') }}
         </NcButton>
